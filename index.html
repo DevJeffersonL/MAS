@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Script</title></head>
+<body>
+<pre style="word-wrap: break-word; white-space: pre-wrap;">
+<#
+.SYNOPSIS
+    Downloads, verifies, and executes the Microsoft Activation Script in an elevated Command Prompt.
+
+.DESCRIPTION
+    A robust, fail-safe wrapper that queries redundant mirror repositories, validates SHA-256 
+    cryptographic hashes, and launches execution within a clean temporary environment.
+
+.PARAMETER Mirrors
+    Array of URIs to attempt downloading the payload from.
+
+.PARAMETER ExpectedHash
+    The SHA-256 checksum required to validate payload integrity before execution.
+
+.PARAMETER PassThruArguments
+    Optional switches or arguments passed directly to the batch engine.
+#>
+[CmdletBinding(SupportsShouldProcess = $true)]
+param (
+    [Parameter(Position = 0)]
+    [ValidateNotNullOrEmpty()]
+    [uri[]]$Mirrors = @(
+        'https://raw.githubusercontent.com/massgravel/Microsoft-Activation-Scripts/05c4f881efec946c0040cdd552d1afa9a519704b/MAS/All-In-One-Version-KL/MAS_AIO.cmd',
+        'https://dev.azure.com/massgrave/Microsoft-Activation-Scripts/_apis/git/repositories/Microsoft-Activation-Scripts/items?path=/MAS/All-In-One-Version-KL/MAS_AIO.cmd&versionType=Commit&version=05c4f881efec946c0040cdd552d1afa9a519704b',
+        'https://git.activated.win/Microsoft-Activation-Scripts/plain/MAS/All-In-One-Version-KL/MAS_AIO.cmd?id=05c4f881efec946c0040cdd552d1afa9a519704b'
+    ),
+
+    [Parameter()]
+    [ValidatePattern('^[A-Fa-f0-9]{64}$')]
+    [string]$ExpectedHash = '850F979665FB93999ACAE93F4790C1FF8ED2041532060B7966A121C2D29A0BFA',
+
+    [Parameter()]
+    [string[]]$PassThruArguments
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Test-IsAdministrator {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param ()
+    
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]$identity
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Get-RemotePayload {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [uri[]]$Endpoints
+    )
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $shuffledEndpoints = $Endpoints | Sort-Object { Get-Random }
+
+    foreach ($endpoint in $shuffledEndpoints) {
+        try {
+            Write-Verbose "Attempting download from: $endpoint"
+            $content = Invoke-RestMethod -Uri $endpoint -TimeoutSec 15
+            if (-not [string]::IsNullOrWhiteSpace($content)) {
+                return $content
+            }
+        }
+        catch {
+            Write-Verbose "Mirror unreachable ($($endpoint.Host)): $($_.Exception.Message)"
+        }
+    }
+
+    throw [System.IO.IOException]::new("Unable to download payload from any configured mirror.")
+}
+
+function Test-PayloadIntegrity {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Content,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TargetHash
+    )
+
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+    $bytes = $encoding.GetBytes($Content)
+    
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $hasher.ComputeHash($bytes)
+        $actualHash = -join ($hashBytes | ForEach-Object { '{0:X2}' -f $_ })
+    }
+    finally {
+        $hasher.Dispose()
+    }
+
+    Write-Verbose "Computed SHA-256 : $actualHash"
+    Write-Verbose "Expected SHA-256 : $TargetHash"
+
+    return ($actualHash -eq $TargetHash)
+}
+
+# --- Execution Entrypoint ---
+
+try {
+    # 1. Download payload
+    Write-Verbose "Querying redundant repositories..."
+    $scriptContent = Get-RemotePayload -Endpoints $Mirrors
+
+    # 2. Cryptographic Validation
+    Write-Verbose "Validating payload checksum..."
+    if (-not (Test-PayloadIntegrity -Content $scriptContent -TargetHash $ExpectedHash)) {
+        throw [System.Security.SecurityException]::new("Security verification failed: SHA-256 mismatch detected.")
+    }
+
+    # 3. Target Path Resolution & Staging
+    $tempDirectory = if (Test-IsAdministrator) { $env:SystemRoot + '\Temp' } else { [System.IO.Path]::GetTempPath() }
+    $tempFileName = "MAS_{0}.cmd" -f [guid]::NewGuid().ToString('N')
+    $tempFilePath = [System.IO.Path]::Combine($tempDirectory, $tempFileName)
+
+    if ($PSCmdlet.ShouldProcess($tempFilePath, "Stage verified payload and execute")) {
+        # Prevent CMD parser errors by enforcing UTF-8 without BOM
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($tempFilePath, $scriptContent, $utf8NoBom)
+        Write-Verbose "Payload written to temporary staging: $tempFilePath"
+
+        # 4. Elevated Execution
+        $cmdArguments = @('/c', "`"$tempFilePath`"")
+        if ($PassThruArguments) {
+            $cmdArguments += $PassThruArguments
+        }
+
+        $processParams = @{
+            FilePath     = "$env:SystemRoot\System32\cmd.exe"
+            ArgumentList = ($cmdArguments -join ' ')
+            Verb         = 'RunAs'
+            Wait         = $true
+        }
+
+        Write-Verbose "Spawning elevated Command Prompt..."
+        Start-Process @processParams
+    }
+}
+catch {
+    Write-Error "Execution halted: $($_.Exception.Message)"
+}
+finally {
+    # 5. Guaranteed Cleanup
+    if ($tempFilePath -and (Test-Path -LiteralPath $tempFilePath)) {
+        Write-Verbose "Removing temporary script file..."
+        Remove-Item -LiteralPath $tempFilePath -Force -ErrorAction SilentlyContinue
+    }
+}
+</pre>
+</body>
+</html>
