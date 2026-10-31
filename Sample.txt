@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 # 2. Target URLs and file path destinations
-$sourceUrl = 'https://raw.githubusercontent.com/DevJeffersonL/MAS/refs/heads/main/Sample.bat'
+$sourceUrl = 'https://github.com/DevJeffersonL/MAS/blob/8b72d4eefec434e056e4db9086bb39c0ed8c6df5/Online_KMS_Activation/Online_KMS_Activation.cmd'
 $tempFolder = [System.IO.Path]::GetTempPath()
 $tempFile   = Join-Path -Path $tempFolder -ChildPath ("payload_{0}.bat" -f ([System.Guid]::NewGuid().ToString("N").Substring(0, 8)))
 
