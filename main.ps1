@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
 
-$url = 'https://github.com/DevJeffersonL/MAS/blob/d057f041b50dbd4f2d2044a69780741fb07e35d6/main.ps1'
+$url = 'https://github.com/DevJeffersonL/MAS/blob/5cef103b7d33f4588e70511977c80add0805568d/main.bat'
 $rawUrl = $url -replace 'github\.com/(.+?)/blob/', 'raw.githubusercontent.com/$1/'
 $outFile = Join-Path $PWD (($rawUrl -split '/')[-1] -replace '\?.*$', '')
 
