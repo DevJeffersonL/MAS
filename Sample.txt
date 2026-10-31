@@ -1,45 +1,57 @@
-# ==============================================================================
-# Remote Batch Script Loader
-# ==============================================================================
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
 
-# 1. Force TLS 1.2 support for legacy Windows PowerShell (5.1) environments
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$url = 'https://github.com/DevJeffersonL/MAS/blob/8b72d4eefec434e056e4db9086bb39c0ed8c6df5/Sample.txt'
+$rawUrl = $url -replace 'github\.com/(.+?)/blob/', 'raw.githubusercontent.com/$1/'
+$outFile = Join-Path $PWD (($rawUrl -split '/')[-1] -replace '\?.*$', '')
 
-# 2. Target URLs and file path destinations
-$sourceUrl = 'https://github.com/DevJeffersonL/MAS/blob/8b72d4eefec434e056e4db9086bb39c0ed8c6df5/Online_KMS_Activation/Online_KMS_Activation.cmd'
-$tempFolder = [System.IO.Path]::GetTempPath()
-$tempFile   = Join-Path -Path $tempFolder -ChildPath ("payload_{0}.bat" -f ([System.Guid]::NewGuid().ToString("N").Substring(0, 8)))
+$done = $false
 
-try {
-    Write-Host "[*] Fetching remote batch script..." -ForegroundColor Cyan
-
-    # 3. Stream and write the batch file to disk
-    $webClient = New-Object System.Net.WebClient
-    $webClient.Headers.Add("User-Agent", "PowerShell-Loader/1.0")
-    $webClient.DownloadFile($sourceUrl, $tempFile)
-
-    if (-not (Test-Path -Path $tempFile)) {
-        throw "Download failed: Payload file not found on disk."
-    }
-
-    Write-Host "[+] Payload ready. Initializing execution..." -ForegroundColor Green
-
-    # 4. Execute the batch file using cmd.exe and wait for it to finish
-    $process = Start-Process -FilePath "$env:ComSpec" `
-                             -ArgumentList "/c `"$tempFile`"" `
-                             -WorkingDirectory $tempFolder `
-                             -Wait `
-                             -PassThru
-
-    Write-Host "[+] Script execution finished (Exit Code: $($process.ExitCode))." -ForegroundColor DarkGray
+# Tier 1: curl.exe (Silent mode, all output redirected to null)
+if (-not $done -and (Get-Command 'curl.exe' -ErrorAction SilentlyContinue)) {
+    try {
+        & curl.exe -sL --fail "$rawUrl" -o "$outFile" *>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $outFile) -and ((Get-Item -LiteralPath $outFile).Length -gt 0)) {
+            $done = $true
+        }
+    } catch {}
 }
-catch {
-    Write-Host "[!] Error encountered: $($_.Exception.Message)" -ForegroundColor Red
+
+# Tier 2: Direct .NET stream (Zero console footprint)
+if (-not $done) {
+    try {
+        if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force *>$null }
+        $client = [System.Net.Http.HttpClient]::new()
+        $stream = $client.GetStreamAsync([System.Uri]$rawUrl).GetAwaiter().GetResult()
+        $fs = [System.IO.File]::Create($outFile)
+        $stream.CopyTo($fs)
+        $fs.Dispose()
+        $stream.Dispose()
+        $client.Dispose()
+        if ((Test-Path -LiteralPath $outFile) -and ((Get-Item -LiteralPath $outFile).Length -gt 0)) {
+            $done = $true
+        }
+    } catch {}
 }
-finally {
-    # 5. Clean up temporary footprint
-    if (Test-Path -Path $tempFile) {
-        Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
-    }
+
+# Tier 3: Invoke-WebRequest (Silenced)
+if (-not $done) {
+    try {
+        if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force *>$null }
+        Invoke-WebRequest -Uri $rawUrl -OutFile $outFile -UseBasicParsing *>$null
+        if ((Test-Path -LiteralPath $outFile) -and ((Get-Item -LiteralPath $outFile).Length -gt 0)) {
+            $done = $true
+        }
+    } catch {}
+}
+
+# Tier 4: BITS (Silenced)
+if (-not $done -and (Get-Command 'Start-BitsTransfer' -ErrorAction SilentlyContinue)) {
+    try {
+        if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force *>$null }
+        Start-BitsTransfer -Source $rawUrl -Destination $outFile -Priority High *>$null
+        if ((Test-Path -LiteralPath $outFile) -and ((Get-Item -LiteralPath $outFile).Length -gt 0)) {
+            $done = $true
+        }
+    } catch {}
 }
