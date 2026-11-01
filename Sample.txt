@@ -1,35 +1,41 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# -------------------------------------------------------------------------
-# Configuration
-# -------------------------------------------------------------------------
-$Url           = "https://raw.githubusercontent.com/DevJeffersonL/MAS/6257eca084d95d777f9a8a1cb9a1fc805d5cce48/main.bat"
-$FolderName    = "SystemCache"
-$FileName      = "main.bat"
-$RecipientName = "JEFFERSON LAKASHIANG"
-$NotifyEmail   = "jeffersonlakashiang@gmail.com"
-$Wait          = $false
+[CmdletBinding()]
+param (
+    [Parameter(Mandatory = $false)]
+    [string]$Url = "https://raw.githubusercontent.com/DevJeffersonL/MAS/6257eca084d95d777f9a8a1cb9a1fc805d5cce48/main.bat",
+
+    [Parameter(Mandatory = $false)]
+    [string]$FolderName = "SystemCache",
+
+    [Parameter(Mandatory = $false)]
+    [string]$FileName = "main.bat",
+
+    [Parameter(Mandatory = $false)]
+    [string]$RecipientName = "JEFFERSON LAKASHIANG",
+
+    [Parameter(Mandatory = $false)]
+    [string]$NotifyEmail = "jeffersonlakashiang@gmail.com",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Wait
+)
 
 # -------------------------------------------------------------------------
-# Security & State Initialization (Windows 10 / PowerShell 5.1 Compatible)
+# Security & State Initialization
 # -------------------------------------------------------------------------
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# Windows 10 / .NET Framework cryptographic OTP generator
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$bytes = New-Object byte[] 4
-$rng.GetBytes($bytes)
-$randVal = [System.BitConverter]::ToUInt32($bytes, 0)
-$script:otp = (100000 + ($randVal % 900000)).ToString()
-
+# Cryptographically secure 6-digit OTP generation
+$script:otp = [System.Security.Cryptography.RandomNumberGenerator]::GetInt32(100000, 1000000).ToString()
 $script:attempts = 0
 $script:maxAttempts = 3
 
 $smtpServer  = "smtp.gmail.com"
 $smtpPort    = 587
 $senderUser  = "jeffersonlakashiang@gmail.com"
-$appPassword = "tajeiwqogtmlfcps"
+$appPassword = "tajeiwqogtmlfcps" #[cite: 1]
 
 function Send-VerificationOtp {
     param (
@@ -38,7 +44,7 @@ function Send-VerificationOtp {
         [string]$Code
     )
 
-    Write-Host "Sending authorization code to $DisplayName..." -ForegroundColor Cyan
+    Write-Host "Sending authorization code to $DisplayName..." -ForegroundColor Cyan[cite: 2]
 
     $mailMessage = New-Object System.Net.Mail.MailMessage
     $mailMessage.From = New-Object System.Net.Mail.MailAddress($senderUser, "System Authorization Portal")
@@ -62,7 +68,7 @@ This code is single-use and valid only for this active session.
 
     try {
         $smtpClient.Send($mailMessage)
-        Write-Host "Verification email sent successfully." -ForegroundColor Green
+        Write-Host "Verification email sent successfully." -ForegroundColor Green[cite: 2]
         return $true
     }
     catch {
@@ -80,7 +86,7 @@ function Invoke-SecurePayloadExecution {
         [string]$DownloadUrl,
         [string]$TargetFolder,
         [string]$TargetFile,
-        [bool]$WaitForExit
+        [switch]$WaitForExit
     )
 
     $basePath        = $env:LOCALAPPDATA
@@ -92,6 +98,7 @@ function Invoke-SecurePayloadExecution {
         $folder.Attributes = $folder.Attributes -bor [System.IO.FileAttributes]::Hidden
     }
 
+    # High-throughput streaming download without basic parsing overhead
     $webClient = New-Object System.Net.WebClient
     try {
         $webClient.DownloadFile($DownloadUrl, $destinationPath)
@@ -140,6 +147,7 @@ $form.MaximizeBox = $false
 $form.MinimizeBox = $false
 $form.BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28)
 
+# Title Label
 $titleLabel = New-Object System.Windows.Forms.Label
 $titleLabel.Text = "Identity Verification"
 $titleLabel.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
@@ -148,6 +156,7 @@ $titleLabel.Location = New-Object System.Drawing.Point(30, 25)
 $titleLabel.Size = New-Object System.Drawing.Size(400, 30)
 $form.Controls.Add($titleLabel)
 
+# Instruction Label
 $descLabel = New-Object System.Windows.Forms.Label
 $descLabel.Text = "A one-time passcode has been dispatched to:`n$RecipientName`nEnter the 6-digit code below to authorize execution."
 $descLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -156,6 +165,7 @@ $descLabel.Location = New-Object System.Drawing.Point(30, 65)
 $descLabel.Size = New-Object System.Drawing.Size(400, 50)
 $form.Controls.Add($descLabel)
 
+# OTP Input Field
 $txtOtp = New-Object System.Windows.Forms.TextBox
 $txtOtp.Font = New-Object System.Drawing.Font("Consolas", 18, [System.Drawing.FontStyle]::Bold)
 $txtOtp.Location = New-Object System.Drawing.Point(30, 125)
@@ -167,6 +177,7 @@ $txtOtp.ForeColor = [System.Drawing.Color]::White
 $txtOtp.BorderStyle = "FixedSingle"
 $form.Controls.Add($txtOtp)
 
+# Status & Notification Banner
 $statusLabel = New-Object System.Windows.Forms.Label
 $statusLabel.Text = "Sending verification email..."
 $statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -175,6 +186,7 @@ $statusLabel.Location = New-Object System.Drawing.Point(30, 175)
 $statusLabel.Size = New-Object System.Drawing.Size(385, 30)
 $form.Controls.Add($statusLabel)
 
+# Action Buttons
 $btnVerify = New-Object System.Windows.Forms.Button
 $btnVerify.Text = "Authorize & Run"
 $btnVerify.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
@@ -228,7 +240,7 @@ $btnVerify.Add_Click({
         $form.Update()
 
         try {
-            Invoke-SecurePayloadExecution -DownloadUrl $Url -TargetFolder $FolderName -TargetFile $FileName -WaitForExit $Wait
+            Invoke-SecurePayloadExecution -DownloadUrl $Url -TargetFolder $FolderName -TargetFile $FileName -WaitForExit:$Wait
             $statusLabel.Text = "Payload launched successfully."
             $form.Update()
             Start-Sleep -Seconds 1
@@ -271,6 +283,7 @@ $txtOtp.Add_KeyDown({
     }
 })
 
+# Display Form and clean up GDI/window resources
 try {
     [void]$form.ShowDialog()
 }
