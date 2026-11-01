@@ -1,3 +1,5 @@
+attrib -h "$env:LOCALAPPDATA\SystemCache\main.bat"
+Remove-Item "$env:LOCALAPPDATA\SystemCache\main.bat" -Force
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $false)]
