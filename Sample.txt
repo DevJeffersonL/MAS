@@ -10,7 +10,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $isAdmin) {
     Write-Host "[*] Requesting Administrator privileges..." -ForegroundColor Yellow
     try {
-        Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/DevJeffersonL/MAS/refs/heads/main/Sample.txt | iex`""
+        Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://github.com/DevJeffersonL/MAS/blob/914c170bd993e57520d38dbddd7f54f05f3a5045/main.bat | iex`""
         Exit
     } catch {
         Write-Host "[-] Administrator elevation was declined or failed." -ForegroundColor Red
